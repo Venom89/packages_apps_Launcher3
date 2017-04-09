@@ -112,6 +112,8 @@ public class IconCache {
     private Canvas mLowResCanvas;
     private Paint mLowResPaint;
 
+    private static IconsHandler sIconsHandler;
+
     public IconCache(Context context, InvariantDeviceProfile inv) {
         mContext = context;
         mPackageManager = context.getPackageManager();
@@ -188,6 +190,15 @@ public class IconCache {
     private Bitmap makeDefaultIcon(UserHandleCompat user) {
         Drawable unbadged = getFullResDefaultActivityIcon();
         return Utilities.createBadgedIconBitmap(unbadged, user, mContext);
+    }
+
+    /**
+     * Empty out the cache.
+     */
+    public void flush() {
+        synchronized (mCache) {
+            mCache.clear();
+        }
     }
 
     /**
@@ -387,9 +398,11 @@ public class IconCache {
         }
         if (entry == null) {
             entry = new CacheEntry();
-            entry.icon = Utilities.createBadgedIconBitmap(
-                    mIconProvider.getIcon(app, mIconDpi), app.getUser(),
-                    mContext);
+            Drawable icon = getIconsHandler(mContext)
+                    .getDrawableIconForPackage(app.getComponentName());
+            entry.icon = Utilities.createBadgedIconBitmap(icon == null ?
+                    mIconProvider.getIcon(app, mIconDpi) : icon, app.getUser(),
+                    mContext, -1);
         }
         entry.title = app.getLabel();
         entry.contentDescription = mUserManager.getBadgedLabelForUser(entry.title, app.getUser());
@@ -555,9 +568,11 @@ public class IconCache {
             // Check the DB first.
             if (!getEntryFromDB(cacheKey, entry, useLowResIcon) || DEBUG_IGNORE_CACHE) {
                 if (info != null) {
-                    entry.icon = Utilities.createBadgedIconBitmap(
-                            mIconProvider.getIcon(info, mIconDpi), info.getUser(),
-                            mContext);
+                    Drawable icon = getIconsHandler(mContext)
+                            .getDrawableIconForPackage(info.getComponentName());
+                    entry.icon = Utilities.createBadgedIconBitmap(icon == null ?
+                            mIconProvider.getIcon(info, mIconDpi) : icon, info.getUser(),
+                                mContext, unreadNum);
                 } else {
                     if (usePackageIcon) {
                         CacheEntry packageEntry = getEntryForPackageLocked(
@@ -641,9 +656,11 @@ public class IconCache {
 
                     // Load the full res icon for the application, but if useLowResIcon is set, then
                     // only keep the low resolution icon instead of the larger full-sized icon
-                    Bitmap icon = Utilities.createBadgedIconBitmap(
-                            appInfo.loadIcon(mPackageManager), user, mContext);
-                    Bitmap lowResIcon =  generateLowResIcon(icon, mPackageBgColor);
+                    Drawable drawable = getIconsHandler(mContext)
+                            .getDrawableIconForPackage(cacheKey.componentName);
+                    Bitmap icon = Utilities.createBadgedIconBitmap(drawable == null ?
+                                appInfo.loadIcon(mPackageManager) : drawable, user, mContext, -1);
+                    Bitmap lowResIcon = generateLowResIcon(icon, mPackageBgColor);
                     entry.title = appInfo.loadLabel(mPackageManager);
                     entry.contentDescription = mUserManager.getBadgedLabelForUser(entry.title, user);
                     entry.icon = useLowResIcon ? lowResIcon : icon;
@@ -701,6 +718,13 @@ public class IconCache {
         mIconDb.insertOrReplace(values);
     }
 
+    public static IconsHandler getIconsHandler(Context context) {
+        if (sIconsHandler == null) {
+            sIconsHandler = new IconsHandler(context);
+        }
+        return sIconsHandler;
+    }
+
     private boolean getEntryFromDB(ComponentKey cacheKey, CacheEntry entry, boolean lowRes) {
         Cursor c = null;
         try {
@@ -711,7 +735,11 @@ public class IconCache {
                 new String[]{cacheKey.componentName.flattenToString(),
                         Long.toString(mUserManager.getSerialNumberForUser(cacheKey.user))});
             if (c.moveToNext()) {
-                entry.icon = loadIconNoResize(c, 0, lowRes ? mLowResOptions : null);
+                entry.icon = getIconsHandler(mContext).getBitmapIcon(
+                        getIconsHandler(mContext).getDrawableIconForPackage(cacheKey.componentName));
+                if (entry.icon == null) {
+                    entry.icon = loadIconNoResize(c, 0, lowRes ? mLowResOptions : null);
+                }
                 entry.isLowResIcon = lowRes;
                 entry.title = c.getString(1);
                 if (entry.title == null) {
