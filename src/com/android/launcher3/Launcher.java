@@ -966,17 +966,11 @@ public class Launcher extends Activity
         }
 
         if (Utilities.isNycMR1OrAbove()) {
-		//Delay startListening() to prevent (java.lang.IllegalStateException: User 0 isn't unlocked)
-		Timer ptask = new Timer();
-		ptask.schedule(new TimerTask() {
-		@Override
-			public void run() {
-				Log.v(TAG, "mAppWidgetHost.startListening BEGIN");
-				mAppWidgetHost.startListening();
-				Log.v(TAG, "mAppWidgetHost.startListening END");
-			}
-		}, 3000);
-        }
+            try {
+                mAppWidgetHost.startListening();
+            } catch (java.lang.IllegalStateException e) {
+                Log.e(TAG, "Suppresed IllegalStateException");
+                   }
     }
 
     @Override
